@@ -202,10 +202,21 @@ export const createJiraClient = (options: JiraClientOptions) => {
     getTransitions: (key: string): Promise<{ transitions: JiraTransition[] }> =>
       request(`/rest/api/3/issue/${encodeURIComponent(key)}/transitions`),
 
-    transitionIssue: (key: string, transitionId: string): Promise<void> =>
+    // `fields` rides along with the transition rather than going through a
+    // separate edit: Jira rejects a resolution set on an already-closed issue, so
+    // the only moment a screen-required field like `resolution` can be written is
+    // the transition itself.
+    transitionIssue: (
+      key: string,
+      transitionId: string,
+      fields?: Record<string, unknown>,
+    ): Promise<void> =>
       request(`/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, {
         method: "POST",
-        body: JSON.stringify({ transition: { id: transitionId } }),
+        body: JSON.stringify({
+          transition: { id: transitionId },
+          ...(fields ? { fields } : {}),
+        }),
       }),
 
     addComment: (key: string, body: unknown): Promise<void> =>
