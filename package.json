@@ -1,0 +1,54 @@
+{
+  "name": "@kud/jira",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Headless Jira client — issues, comments, attachments, ADF conversion, agile boards and instance metadata, with no environment or process dependencies",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "jira",
+    "atlassian",
+    "api",
+    "client",
+    "adf",
+    "jql"
+  ],
+  "homepage": "https://www.npmjs.com/package/@kud/jira",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kud/jira.git"
+  },
+  "bugs": "https://github.com/kud/jira/issues",
+  "author": "kud",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}
