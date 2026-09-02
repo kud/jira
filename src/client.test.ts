@@ -125,6 +125,17 @@ describe("field selection", () => {
     )
   })
 
+  it("asks for parent, so a caller can name the epic an issue hangs under", async () => {
+    const fake = fakeSearch([{ issues: [] }])
+    const client = createJiraClient({ ...credentials, fetch: fake.fetch })
+
+    await client.searchIssues("project = A")
+
+    expect(fake.bodies[0]?.["fields"]).toEqual(
+      expect.arrayContaining(["parent"]),
+    )
+  })
+
   it("includes the instance's configured custom and sprint fields", async () => {
     const fake = fakeSearch([{ issues: [] }])
     const client = createJiraClient({

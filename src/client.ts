@@ -76,6 +76,7 @@ const DEFAULT_FIELDS = [
   "priority",
   "project",
   "labels",
+  "parent",
   "updated",
 ]
 

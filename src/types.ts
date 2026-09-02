@@ -10,6 +10,16 @@ export type JiraStatus = {
   statusCategory?: { key: string; name: string }
 }
 
+export type JiraIssueParent = {
+  id: string
+  key: string
+  fields?: {
+    summary?: string
+    status?: JiraStatus
+    issuetype?: { name: string }
+  }
+}
+
 export type JiraIssueFields = {
   summary?: string
   status?: JiraStatus
@@ -19,6 +29,7 @@ export type JiraIssueFields = {
   priority?: { name: string } | null
   project?: { key: string; name: string }
   labels?: string[]
+  parent?: JiraIssueParent
   created?: string
   updated?: string
   description?: unknown
