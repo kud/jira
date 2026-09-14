@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ---
 
+## 0.4.0 — 2026-09-14
+
+### Highlights
+
+- `getBoardConfiguration(id)` returns a board's columns alongside the status ids each one claims, so a consumer can render a board without hand-mapping statuses to columns itself. ([62bda08](https://github.com/kud/jira/commit/62bda08e59d25e18bd70c67f89d83ad6d7f12052))
+- `JiraIssueType` gains a `hierarchyLevel` and now types `issuetype` everywhere it appears — worth knowing if you build `issuetype` objects by hand, since the type is `JiraIssueType` (`id` + `name` + optional fields) rather than the old `{ name }`. `isContainerType(type)` is the one way to ask whether a type heads children (Epic, Initiative, and the like), instead of every consumer inventing its own check against `hierarchyLevel`.
+- `errorMessagesOf(e)` pulls the actionable text straight out of Jira's own error shape — `errorMessages[]` or `errors{}` — so callers don't have to parse the API's inconsistent error responses by hand.
+- The JQL helpers move down from `jira-cli` into the shared library: `jqlEscape`, `buildJql`, `looksLikeJql`, `textClause` and `searchJql` are now available to any consumer, not just the CLI.
+- File configuration gains a `tabs` field, for defining custom board tabs.
+
+---
+
 ## 0.3.0 — 2026-09-11
 
 ### Highlights

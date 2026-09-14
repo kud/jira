@@ -6,6 +6,7 @@ export type JiraUser = {
 }
 
 export type JiraStatus = {
+  id?: string
   name: string
   statusCategory?: { key: string; name: string }
 }
