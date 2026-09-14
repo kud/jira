@@ -1,5 +1,6 @@
 import type {
   JiraBoard,
+  JiraBoardConfiguration,
   JiraChangelogEntry,
   JiraComment,
   JiraComponent,
@@ -57,6 +58,30 @@ export const jiraApiError = (
 
 export const isJiraApiError = (e: unknown): e is JiraApiError =>
   e instanceof Error && e.name === "JiraApiError"
+
+/**
+ * Jira's own words for what went wrong — `errorMessages[]` from the body —
+ * which is what a person can act on. `message` is the URL-prefixed, truncated
+ * envelope and is the fallback, never the first choice.
+ */
+export const errorMessagesOf = (e: unknown): string[] => {
+  if (isJiraApiError(e)) {
+    try {
+      const body = JSON.parse(e.body) as {
+        errorMessages?: string[]
+        errors?: Record<string, string>
+      }
+      const fromBody = [
+        ...(body.errorMessages ?? []),
+        ...Object.values(body.errors ?? {}),
+      ]
+      if (fromBody.length) return fromBody
+    } catch {
+      // not JSON — the envelope will do
+    }
+  }
+  return [e instanceof Error ? e.message : String(e)]
+}
 
 const truncate = (s: string, max = 400): string =>
   s.length > max ? `${s.slice(0, max)}…` : s
@@ -346,6 +371,10 @@ export const createJiraClient = (options: JiraClientOptions) => {
     // ── agile ─────────────────────────────────────────────────────────────
     getBoard: (id: number): Promise<JiraBoard> =>
       request(`/rest/agile/1.0/board/${id}`),
+
+    /** The board's columns and which statuses each one claims, by id. */
+    getBoardConfiguration: (id: number): Promise<JiraBoardConfiguration> =>
+      request(`/rest/agile/1.0/board/${id}/configuration`),
 
     getBoardIssues: (
       id: number,

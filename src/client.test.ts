@@ -193,3 +193,41 @@ describe("errors", () => {
     expect(headers?.get("accept-language")).toBe("en")
   })
 })
+
+describe("errorMessagesOf", () => {
+  it("prefers Jira's own words from the body", async () => {
+    const { errorMessagesOf, jiraApiError } = await import("./client.js")
+    const e = jiraApiError(
+      400,
+      "POST",
+      "https://example.atlassian.net/rest/api/3/search/jql",
+      JSON.stringify({
+        errorMessages: ["Field 'statsu' does not exist."],
+        errors: { jql: "Expecting an operator." },
+      }),
+    )
+    expect(errorMessagesOf(e)).toEqual([
+      "Field 'statsu' does not exist.",
+      "Expecting an operator.",
+    ])
+  })
+
+  it("falls back to the envelope when the body is not JSON", async () => {
+    const { errorMessagesOf, jiraApiError } = await import("./client.js")
+    const e = jiraApiError(502, "GET", "https://example.atlassian.net/x", "<html>")
+    expect(errorMessagesOf(e)[0]).toMatch(/^Jira API 502/)
+    expect(errorMessagesOf(new Error("plain"))).toEqual(["plain"])
+  })
+})
+
+describe("isContainerType", () => {
+  it("trusts hierarchyLevel when present and the name otherwise", async () => {
+    const { isContainerType } = await import("./types.js")
+    expect(isContainerType({ id: "1", name: "Initiative", hierarchyLevel: 2 })).toBe(true)
+    expect(isContainerType({ id: "2", name: "Epic", hierarchyLevel: 1 })).toBe(true)
+    expect(isContainerType({ id: "3", name: "Epic", hierarchyLevel: 0 })).toBe(false)
+    expect(isContainerType({ id: "4", name: "Epic" })).toBe(true)
+    expect(isContainerType({ id: "5", name: "Story" })).toBe(false)
+    expect(isContainerType(undefined)).toBe(false)
+  })
+})

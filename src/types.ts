@@ -16,7 +16,7 @@ export type JiraIssueParent = {
   fields?: {
     summary?: string
     status?: JiraStatus
-    issuetype?: { name: string }
+    issuetype?: JiraIssueType
   }
 }
 
@@ -25,7 +25,7 @@ export type JiraIssueFields = {
   status?: JiraStatus
   assignee?: JiraUser | null
   reporter?: JiraUser | null
-  issuetype?: { name: string }
+  issuetype?: JiraIssueType
   priority?: { name: string } | null
   project?: { key: string; name: string }
   labels?: string[]
@@ -98,7 +98,33 @@ export type JiraCreated = { id: string; key: string; self: string }
 
 export type JiraNamed = { id: string; name: string; description?: string }
 
-export type JiraIssueType = JiraNamed & { subtask?: boolean; scope?: unknown }
+/**
+ * `hierarchyLevel` is Jira Cloud's own word for what an issue type is in the
+ * tree — 1 for Epic, 0 for a standard type, -1 for a sub-task — and it is how
+ * a container is recognised here, so a renamed Epic or a level-1 Initiative
+ * still heads its children. Server/DC may omit it, hence the name fallback.
+ */
+export type JiraIssueType = JiraNamed & {
+  subtask?: boolean
+  scope?: unknown
+  hierarchyLevel?: number
+}
+
+export const isContainerType = (type: JiraIssueType | undefined): boolean =>
+  !type
+    ? false
+    : type.hierarchyLevel !== undefined
+      ? type.hierarchyLevel > 0
+      : type.name.toLowerCase() === "epic"
+
+export type JiraBoardColumn = { name: string; statuses: { id: string }[] }
+
+export type JiraBoardConfiguration = {
+  id: number
+  name: string
+  type?: string
+  columnConfig?: { columns: JiraBoardColumn[] }
+}
 
 export type JiraVersion = JiraNamed & {
   released?: boolean

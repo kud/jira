@@ -12,7 +12,15 @@ export type FileConfig = {
   sprintField?: string
   defaultProject?: string
   defaultBoard?: number
+  /**
+   * Hand-written board tabs, each naming the statuses it claims by id or by
+   * name. The escape hatch over a board's own column config — for an instance
+   * with no board, or a board whose columns are not how you think.
+   */
+  tabs?: BoardTab[]
 }
+
+export type BoardTab = { label: string; statuses: string[] }
 
 export type Config = FileConfig & {
   baseUrl: string
