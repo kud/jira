@@ -4,7 +4,10 @@ import { isTextual, locateAttachments } from "./attachments.js"
 import type { JiraIssue } from "./types.js"
 
 /** Shaped after a real Jira document: a media UUID plus the filename in `alt`. */
-const mediaDoc = (filename: string, id = "0d70315b-7258-4073-96ec-800eb52208") => ({
+const mediaDoc = (
+  filename: string,
+  id = "0d70315b-7258-4073-96ec-800eb52208",
+) => ({
   type: "doc",
   content: [
     { type: "paragraph", content: [{ type: "text", text: "see this:" }] },
@@ -115,8 +118,9 @@ describe("adfToMarkdown media resolution", () => {
       content: [{ type: "media", attrs: { id: "uuid-1" } }],
     }
 
-    expect(adfToMarkdown(doc, (id) => (id === "uuid-1" ? "found.log" : undefined)))
-      .toContain("[attachment: found.log]")
+    expect(
+      adfToMarkdown(doc, (id) => (id === "uuid-1" ? "found.log" : undefined)),
+    ).toContain("[attachment: found.log]")
   })
 
   it("falls back to the id rather than dropping the reference", () => {

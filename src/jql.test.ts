@@ -18,7 +18,7 @@ describe("looksLikeJql", () => {
     expect(looksLikeJql("what is the total")).toBe(false)
     expect(looksLikeJql("SHOP-412")).toBe(false)
     expect(looksLikeJql("he was here")).toBe(false)
-    expect(looksLikeJql("status was \"Done\"")).toBe(true)
+    expect(looksLikeJql('status was "Done"')).toBe(true)
     expect(looksLikeJql("status changed after -7d")).toBe(true)
     expect(looksLikeJql("assignee is EMPTY")).toBe(true)
   })
@@ -26,14 +26,18 @@ describe("looksLikeJql", () => {
 
 describe("searchJql", () => {
   it("scopes plain words inside the list and reads comments too", () => {
-    expect(searchJql("coupon codes", { scope: "assignee = currentUser()" })).toEqual({
+    expect(
+      searchJql("coupon codes", { scope: "assignee = currentUser()" }),
+    ).toEqual({
       jql: 'assignee = currentUser() AND text ~ "coupon codes" ORDER BY updated DESC',
       mode: "text",
     })
   })
 
   it("passes JQL through verbatim, replacing the scope", () => {
-    expect(searchJql("status = Done", { scope: "assignee = currentUser()" })).toEqual({
+    expect(
+      searchJql("status = Done", { scope: "assignee = currentUser()" }),
+    ).toEqual({
       jql: "status = Done",
       mode: "jql",
     })

@@ -129,10 +129,7 @@ const render = (node: AdfNode): string => {
  * than emitting ANSI: rendering is the surface's job, so a TUI, a pager and a
  * `--json` consumer all get the same text and only one of them styles it.
  */
-export const adfToMarkdown = (
-  doc: unknown,
-  media?: MediaResolver,
-): string => {
+export const adfToMarkdown = (doc: unknown, media?: MediaResolver): string => {
   if (typeof doc === "string") return doc
   if (!doc || typeof doc !== "object") return ""
   const previous = resolveMedia
@@ -157,8 +154,7 @@ const inline = (text: string): unknown[] => {
 
   for (const match of text.matchAll(pattern)) {
     const at = match.index
-    if (at > cursor)
-      nodes.push({ type: "text", text: text.slice(cursor, at) })
+    if (at > cursor) nodes.push({ type: "text", text: text.slice(cursor, at) })
 
     const token = match[0]
     if (token.startsWith("`")) {
@@ -179,7 +175,8 @@ const inline = (text: string): unknown[] => {
     cursor = at + token.length
   }
 
-  if (cursor < text.length) nodes.push({ type: "text", text: text.slice(cursor) })
+  if (cursor < text.length)
+    nodes.push({ type: "text", text: text.slice(cursor) })
   return nodes.length > 0 ? nodes : [{ type: "text", text }]
 }
 
@@ -218,7 +215,10 @@ const blockToAdf = (block: string): unknown => {
       content: lines.map((l) => ({
         type: "listItem",
         content: [
-          { type: "paragraph", content: inline(l.replace(/^\s*\d+[.)]\s+/, "")) },
+          {
+            type: "paragraph",
+            content: inline(l.replace(/^\s*\d+[.)]\s+/, "")),
+          },
         ],
       })),
     }

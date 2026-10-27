@@ -156,6 +156,20 @@ export type JiraFilter = {
   owner?: JiraUser
 }
 
+export type JiraRemoteLink = {
+  id: number
+  self?: string
+  globalId?: string
+  application?: { type?: string; name?: string }
+  relationship?: string
+  object: {
+    url: string
+    title: string
+    summary?: string
+    icon?: { url16x16?: string; title?: string }
+  }
+}
+
 export type JiraWorklog = {
   id: string
   author?: JiraUser

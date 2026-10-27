@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+import { basename } from "node:path"
 import type {
   JiraBoard,
   JiraBoardConfiguration,
@@ -11,6 +13,7 @@ import type {
   JiraIssueType,
   JiraNamed,
   JiraProjectStatuses,
+  JiraRemoteLink,
   JiraVersion,
   JiraWorklog,
   JiraField,
@@ -22,6 +25,11 @@ import type {
   JiraUser,
   SearchOptions,
 } from "./types.js"
+import type { JiraAttachment } from "./attachments.js"
+
+type RankResult = {
+  entries?: Array<{ issueKey?: string; status: number; errors?: string[] }>
+}
 
 export type JiraCredentials = {
   baseUrl: string
@@ -123,7 +131,11 @@ export const createJiraClient = (options: JiraClientOptions) => {
       ...init,
       headers: {
         Authorization: authHeader,
-        "Content-Type": "application/json",
+        // A FormData body must not carry a static Content-Type: fetch sets the
+        // multipart one with the boundary itself, and a JSON pin would break it.
+        ...(init.body instanceof FormData
+          ? {}
+          : { "Content-Type": "application/json" }),
         Accept: "application/json",
         // Jira localises error bodies from the account's language. Errors here
         // are read by scripts and pasted into issues, so pin them to English.
@@ -145,6 +157,12 @@ export const createJiraClient = (options: JiraClientOptions) => {
       )
     }
     if (res.status === 204) return undefined as T
+    // 207 multi-status (issue rank's partial failures) may come back empty;
+    // json() would throw on that, so read the text and parse only what is there.
+    if (res.status === 207) {
+      const text = await res.text()
+      return (text ? JSON.parse(text) : undefined) as T
+    }
     return (await res.json()) as T
   }
 
@@ -306,6 +324,46 @@ export const createJiraClient = (options: JiraClientOptions) => {
         { method: "DELETE" },
       ),
 
+    updateComment: (
+      key: string,
+      commentId: string,
+      body: unknown,
+    ): Promise<JiraComment> =>
+      request(
+        `/rest/api/3/issue/${encodeURIComponent(key)}/comment/${encodeURIComponent(commentId)}`,
+        { method: "PUT", body: JSON.stringify({ body }) },
+      ),
+
+    uploadAttachment: async (
+      key: string,
+      file: string | { data: Buffer | Uint8Array | Blob; filename: string },
+    ): Promise<JiraAttachment[]> => {
+      let data: Blob
+      let filename: string
+      if (typeof file === "string") {
+        // `readFile`'s Buffer is a valid BlobPart at runtime; the cast exists
+        // only for the ArrayBufferLike/ArrayBuffer split in lib types.
+        data = new Blob([(await readFile(file)) as BlobPart])
+        filename = basename(file)
+      } else {
+        data =
+          file.data instanceof Blob
+            ? file.data
+            : new Blob([file.data as BlobPart])
+        filename = file.filename
+      }
+      const form = new FormData()
+      form.append("file", data, filename)
+      return request(
+        `/rest/api/3/issue/${encodeURIComponent(key)}/attachments`,
+        {
+          method: "POST",
+          body: form,
+          headers: { "X-Atlassian-Token": "no-check" },
+        },
+      )
+    },
+
     getWatchers: (key: string): Promise<{ watchers: JiraUser[] }> =>
       request(`/rest/api/3/issue/${encodeURIComponent(key)}/watchers`),
 
@@ -333,6 +391,22 @@ export const createJiraClient = (options: JiraClientOptions) => {
         body: JSON.stringify(body),
       }),
 
+    updateWorklog: (
+      key: string,
+      worklogId: string,
+      body: { timeSpent?: string; comment?: unknown; started?: string },
+    ): Promise<JiraWorklog> =>
+      request(
+        `/rest/api/3/issue/${encodeURIComponent(key)}/worklog/${encodeURIComponent(worklogId)}`,
+        { method: "PUT", body: JSON.stringify(body) },
+      ),
+
+    deleteWorklog: (key: string, worklogId: string): Promise<void> =>
+      request(
+        `/rest/api/3/issue/${encodeURIComponent(key)}/worklog/${encodeURIComponent(worklogId)}`,
+        { method: "DELETE" },
+      ),
+
     getChangelog: (key: string): Promise<{ values: JiraChangelogEntry[] }> =>
       request(`/rest/api/3/issue/${encodeURIComponent(key)}/changelog`),
 
@@ -352,6 +426,40 @@ export const createJiraClient = (options: JiraClientOptions) => {
           outwardIssue: { key: outwardKey },
         }),
       }),
+
+    getRemoteLinks: (key: string): Promise<JiraRemoteLink[]> =>
+      request(`/rest/api/3/issue/${encodeURIComponent(key)}/remotelink`),
+
+    createRemoteLink: (
+      key: string,
+      link: {
+        url: string
+        title: string
+        summary?: string
+        globalId?: string
+        relationship?: string
+      },
+    ): Promise<{ id: number; self: string }> =>
+      request(`/rest/api/3/issue/${encodeURIComponent(key)}/remotelink`, {
+        method: "POST",
+        body: JSON.stringify({
+          object: {
+            url: link.url,
+            title: link.title,
+            ...(link.summary !== undefined ? { summary: link.summary } : {}),
+          },
+          ...(link.globalId !== undefined ? { globalId: link.globalId } : {}),
+          ...(link.relationship !== undefined
+            ? { relationship: link.relationship }
+            : {}),
+        }),
+      }),
+
+    deleteRemoteLink: (key: string, linkId: number | string): Promise<void> =>
+      request(
+        `/rest/api/3/issue/${encodeURIComponent(key)}/remotelink/${encodeURIComponent(String(linkId))}`,
+        { method: "DELETE" },
+      ),
 
     // ── projects ──────────────────────────────────────────────────────────
     getProject: (key: string): Promise<JiraProject> =>
@@ -398,6 +506,48 @@ export const createJiraClient = (options: JiraClientOptions) => {
 
     getEpicIssues: (id: string): Promise<{ issues: JiraIssue[] }> =>
       request(`/rest/agile/1.0/epic/${encodeURIComponent(id)}/issue`),
+
+    moveIssuesToSprint: (
+      sprintId: number,
+      issueKeys: string[],
+    ): Promise<void> =>
+      request(`/rest/agile/1.0/sprint/${sprintId}/issue`, {
+        method: "POST",
+        body: JSON.stringify({ issues: issueKeys }),
+      }),
+
+    moveIssuesToBacklog: (issueKeys: string[]): Promise<void> =>
+      request("/rest/agile/1.0/backlog/issue", {
+        method: "POST",
+        body: JSON.stringify({ issues: issueKeys }),
+      }),
+
+    // A 207 means some issues ranked and some did not. To the caller that is a
+    // failure, so it throws naming each issue Jira refused and why.
+    rankIssues: async (
+      issueKeys: string[],
+      position: { before: string } | { after: string },
+    ): Promise<void> => {
+      const result = await request<RankResult | undefined>(
+        "/rest/agile/1.0/issue/rank",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            issues: issueKeys,
+            ...("before" in position
+              ? { rankBeforeIssue: position.before }
+              : { rankAfterIssue: position.after }),
+          }),
+        },
+      )
+      const refused = (result?.entries ?? []).filter((e) => e.status >= 400)
+      if (refused.length > 0) {
+        const reasons = refused.map(
+          (e) => `${e.issueKey ?? "?"}: ${e.errors?.join("; ") || e.status}`,
+        )
+        throw new Error(`Jira refused to rank ${reasons.join(", ")}`)
+      }
+    },
 
     // ── people ────────────────────────────────────────────────────────────
     searchUsers: (query: string, maxResults = 20): Promise<JiraUser[]> =>

@@ -67,7 +67,9 @@ const WORD_OPS = [
   String.raw`\s+changed\s*(by|after|before|during|on|from|to|$)`,
 ].join("|")
 const JQL_SHAPE = new RegExp(
-  String.raw`^\(?\s*(not\s+)?\(?\s*[\w.\-[\]"]+\s*(=|!=|~|!~|<=|>=|<|>|` + WORD_OPS + ")",
+  String.raw`^\(?\s*(not\s+)?\(?\s*[\w.\-[\]"]+\s*(=|!=|~|!~|<=|>=|<|>|` +
+    WORD_OPS +
+    ")",
   "i",
 )
 const ORDER_ONLY = /^order\s+by\s/i
