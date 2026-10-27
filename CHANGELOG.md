@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 ---
 
+## 0.5.0 — 2026-10-27
+
+### Highlights
+
+- The client can now edit and remove what it previously could only create: `updateComment`, `updateWorklog` and `deleteWorklog`. ([d1b0923](https://github.com/kud/jira/commit/d1b0923c90d18242f64db0e2601188bbeb2e1cfe))
+- `uploadAttachment` attaches files to an issue, and `getRemoteLinks`, `createRemoteLink` and `deleteRemoteLink` manage its remote links, typed with the new `JiraRemoteLink`. ([d1b0923](https://github.com/kud/jira/commit/d1b0923c90d18242f64db0e2601188bbeb2e1cfe))
+- Sprint planning is covered: `moveIssuesToSprint`, `moveIssuesToBacklog` and `rankIssues`. `rankIssues` throws naming each issue Jira refused when it answers 207 with partial failures. ([d1b0923](https://github.com/kud/jira/commit/d1b0923c90d18242f64db0e2601188bbeb2e1cfe))
+
+---
+
 ## 0.4.0 — 2026-09-14
 
 ### Highlights
