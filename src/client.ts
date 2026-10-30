@@ -156,14 +156,11 @@ export const createJiraClient = (options: JiraClientOptions) => {
         await res.text(),
       )
     }
-    if (res.status === 204) return undefined as T
-    // 207 multi-status (issue rank's partial failures) may come back empty;
-    // json() would throw on that, so read the text and parse only what is there.
-    if (res.status === 207) {
-      const text = await res.text()
-      return (text ? JSON.parse(text) : undefined) as T
-    }
-    return (await res.json()) as T
+    // Any 2xx may have an empty body (e.g. 201 from POST /issueLink).
+    // Read as text first; return undefined for empty, otherwise parse JSON.
+    const text = await res.text()
+    if (!text) return undefined as T
+    return JSON.parse(text) as T
   }
 
   /** Every field the caller cares about, including this instance's custom ones. */
@@ -240,6 +237,8 @@ export const createJiraClient = (options: JiraClientOptions) => {
           "reporter",
           "created",
           "attachment",
+          "issuelinks",
+          "subtasks",
         ]).join(",")}`,
       ),
 
@@ -606,3 +605,44 @@ export const createJiraClient = (options: JiraClientOptions) => {
 }
 
 export type JiraClient = ReturnType<typeof createJiraClient>
+
+export type FlattenedIssueLink = {
+  direction: "inward" | "outward"
+  type: string
+  key: string
+  summary: string
+  status: string
+}
+
+/**
+ * Flattens an issue's issuelinks into a simpler array.
+ * Each link becomes one entry with the human-readable type label
+ * (inward for inwardIssue, outward for outwardIssue).
+ */
+export const flattenIssueLinks = (issue: JiraIssue): FlattenedIssueLink[] => {
+  const links = issue.fields.issuelinks
+  if (!links || links.length === 0) return []
+
+  const result: FlattenedIssueLink[] = []
+  for (const link of links) {
+    if (link.inwardIssue) {
+      result.push({
+        direction: "inward",
+        type: link.type.inward,
+        key: link.inwardIssue.key,
+        summary: link.inwardIssue.fields.summary,
+        status: link.inwardIssue.fields.status?.name ?? "Unknown",
+      })
+    }
+    if (link.outwardIssue) {
+      result.push({
+        direction: "outward",
+        type: link.type.outward,
+        key: link.outwardIssue.key,
+        summary: link.outwardIssue.fields.summary,
+        status: link.outwardIssue.fields.status?.name ?? "Unknown",
+      })
+    }
+  }
+  return result
+}

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createJiraClient, isJiraApiError, normalizeBaseUrl } from "./client.js"
+import { createJiraClient, isJiraApiError, normalizeBaseUrl, flattenIssueLinks } from "./client.js"
 import type { JiraSearchPage } from "./types.js"
 
 const credentials = {
@@ -505,5 +505,255 @@ describe("issue writes", () => {
     expect(req.url).toBe(
       "https://example.atlassian.net/rest/api/3/issue/SHOP-1234/worklog/10001",
     )
+  })
+})
+
+describe("empty body handling", () => {
+  it("linkIssues resolves on 201 with empty body", async () => {
+    const fetch = (async () =>
+      new Response("", {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof globalThis.fetch
+    const client = createJiraClient({ ...credentials, fetch })
+
+    await expect(
+      client.linkIssues("Blocks", "ABC-1", "ABC-2"),
+    ).resolves.toBeUndefined()
+  })
+
+  it("204 still returns undefined", async () => {
+    const fetch = (async () =>
+      new Response(null, { status: 204 })) as unknown as typeof globalThis.fetch
+    const client = createJiraClient({ ...credentials, fetch })
+
+    const result = await client.request("/rest/api/3/some/204")
+    expect(result).toBeUndefined()
+  })
+
+  it("207 with empty body returns undefined", async () => {
+    const fetch = (async () =>
+      new Response("", {
+        status: 207,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof globalThis.fetch
+    const client = createJiraClient({ ...credentials, fetch })
+
+    const result = await client.request<{ entries: Array<{ issueKey: string; status: number }> }>(
+      "/rest/agile/1.0/issue/rank",
+    )
+    expect(result).toBeUndefined()
+  })
+
+  it("207 with JSON body parses the result", async () => {
+    const fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          entries: [{ issueKey: "ABC-1", status: 200 }],
+        }),
+        { status: 207, headers: { "content-type": "application/json" } },
+      )) as unknown as typeof globalThis.fetch
+    const client = createJiraClient({ ...credentials, fetch })
+
+    const result = await client.request<{ entries: Array<{ issueKey: string; status: number }> }>(
+      "/rest/agile/1.0/issue/rank",
+    )
+    expect(result).toEqual({ entries: [{ issueKey: "ABC-1", status: 200 }] })
+  })
+})
+
+describe("getIssue field selection", () => {
+  it("includes issuelinks and subtasks in the fields query", async () => {
+    const fake = fakeCall({
+      id: "10001",
+      key: "ABC-1",
+      self: "",
+      fields: { summary: "Test issue", status: { name: "Done" } },
+    })
+    const client = createJiraClient({ ...credentials, fetch: fake.fetch })
+
+    await client.getIssue("ABC-1")
+
+    const req = fake.request()
+    expect(req.url).toContain("fields=")
+    const url = new URL(req.url)
+    const fields = url.searchParams.get("fields")?.split(",") ?? []
+    expect(fields).toContain("issuelinks")
+    expect(fields).toContain("subtasks")
+    // DEFAULT_FIELDS should still be there
+    expect(fields).toContain("summary")
+    expect(fields).toContain("status")
+  })
+
+  it("searchIssues does not include issuelinks or subtasks", async () => {
+    const fake = fakeSearch([{ issues: [] }])
+    const client = createJiraClient({ ...credentials, fetch: fake.fetch })
+
+    await client.searchIssues("project = ABC")
+
+    const fields = fake.bodies[0]?.["fields"] as string[]
+    expect(fields).not.toContain("issuelinks")
+    expect(fields).not.toContain("subtasks")
+  })
+})
+
+describe("flattenIssueLinks", () => {
+  it("returns empty array when no issuelinks", () => {
+    const issue = {
+      id: "1",
+      key: "ABC-1",
+      self: "",
+      fields: { summary: "Test", status: { name: "Done" } },
+    } as any
+    expect(flattenIssueLinks(issue)).toEqual([])
+  })
+
+  it("returns empty array when issuelinks is empty", () => {
+    const issue = {
+      id: "1",
+      key: "ABC-1",
+      self: "",
+      fields: { summary: "Test", status: { name: "Done" }, issuelinks: [] },
+    } as any
+    expect(flattenIssueLinks(issue)).toEqual([])
+  })
+
+  it("flattens inward issue links", () => {
+    const issue = {
+      id: "1",
+      key: "ABC-1",
+      self: "",
+      fields: {
+        summary: "Test",
+        status: { name: "Done" },
+        issuelinks: [
+          {
+            id: "10000",
+            type: { id: "1", name: "Blocks", inward: "is blocked by", outward: "blocks" },
+            inwardIssue: {
+              key: "ABC-2",
+              fields: { summary: "Blocked issue", status: { name: "In Progress" } },
+            },
+          },
+        ],
+      },
+    } as any
+
+    const result = flattenIssueLinks(issue)
+    expect(result).toEqual([
+      {
+        direction: "inward",
+        type: "is blocked by",
+        key: "ABC-2",
+        summary: "Blocked issue",
+        status: "In Progress",
+      },
+    ])
+  })
+
+  it("flattens outward issue links", () => {
+    const issue = {
+      id: "1",
+      key: "ABC-1",
+      self: "",
+      fields: {
+        summary: "Test",
+        status: { name: "Done" },
+        issuelinks: [
+          {
+            id: "10001",
+            type: { id: "1", name: "Blocks", inward: "is blocked by", outward: "blocks" },
+            outwardIssue: {
+              key: "ABC-3",
+              fields: { summary: "Blocking issue", status: { name: "To Do" } },
+            },
+          },
+        ],
+      },
+    } as any
+
+    const result = flattenIssueLinks(issue)
+    expect(result).toEqual([
+      {
+        direction: "outward",
+        type: "blocks",
+        key: "ABC-3",
+        summary: "Blocking issue",
+        status: "To Do",
+      },
+    ])
+  })
+
+  it("flattens both inward and outward links", () => {
+    const issue = {
+      id: "1",
+      key: "ABC-1",
+      self: "",
+      fields: {
+        summary: "Test",
+        status: { name: "Done" },
+        issuelinks: [
+          {
+            id: "10000",
+            type: { id: "1", name: "Blocks", inward: "is blocked by", outward: "blocks" },
+            inwardIssue: {
+              key: "ABC-2",
+              fields: { summary: "Blocked issue", status: { name: "In Progress" } },
+            },
+          },
+          {
+            id: "10001",
+            type: { id: "2", name: "Relates", inward: "relates to", outward: "relates to" },
+            outwardIssue: {
+              key: "ABC-3",
+              fields: { summary: "Related issue", status: { name: "To Do" } },
+            },
+          },
+        ],
+      },
+    } as any
+
+    const result = flattenIssueLinks(issue)
+    expect(result).toEqual([
+      {
+        direction: "inward",
+        type: "is blocked by",
+        key: "ABC-2",
+        summary: "Blocked issue",
+        status: "In Progress",
+      },
+      {
+        direction: "outward",
+        type: "relates to",
+        key: "ABC-3",
+        summary: "Related issue",
+        status: "To Do",
+      },
+    ])
+  })
+
+  it("handles missing status gracefully", () => {
+    const issue = {
+      id: "1",
+      key: "ABC-1",
+      self: "",
+      fields: {
+        summary: "Test",
+        status: { name: "Done" },
+        issuelinks: [
+          {
+            id: "10000",
+            type: { id: "1", name: "Blocks", inward: "is blocked by", outward: "blocks" },
+            inwardIssue: {
+              key: "ABC-2",
+              fields: { summary: "Blocked issue" }, // no status
+            },
+          },
+        ],
+      },
+    } as any
+
+    const result = flattenIssueLinks(issue)
+    expect(result[0].status).toBe("Unknown")
   })
 })

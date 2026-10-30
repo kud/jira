@@ -21,6 +21,29 @@ export type JiraIssueParent = {
   }
 }
 
+export type JiraLinkedIssue = {
+  key: string
+  fields: {
+    summary: string
+    status: JiraStatus
+  }
+}
+
+export type JiraIssueLink = {
+  id: string
+  type: JiraIssueLinkType
+  inwardIssue?: JiraLinkedIssue
+  outwardIssue?: JiraLinkedIssue
+}
+
+export type JiraSubtask = {
+  key: string
+  fields: {
+    summary: string
+    status: JiraStatus
+  }
+}
+
 export type JiraIssueFields = {
   summary?: string
   status?: JiraStatus
@@ -35,6 +58,8 @@ export type JiraIssueFields = {
   updated?: string
   description?: unknown
   comment?: { comments: JiraComment[] }
+  issuelinks?: JiraIssueLink[]
+  subtasks?: JiraSubtask[]
   [field: string]: unknown
 }
 
