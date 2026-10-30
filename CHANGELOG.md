@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 ---
 
+## 0.6.0 — 2026-10-30
+
+### Highlights
+
+- `getIssue` now returns an issue's `issuelinks` and `subtasks`, typed with the new `JiraIssueLink`, `JiraLinkedIssue` and `JiraSubtask`. Search results are unchanged. ([b1c30e4](https://github.com/kud/jira/commit/b1c30e4e37cc761cba3e7ef193f96e3df90cad3e))
+- `flattenIssueLinks(issue)` turns those links into plain `{ direction, type, key, summary, status }` entries, so consumers stop unpicking inward and outward sides themselves. ([b1c30e4](https://github.com/kud/jira/commit/b1c30e4e37cc761cba3e7ef193f96e3df90cad3e))
+
+### Fixes
+
+- Any successful response with an empty body now resolves instead of throwing "Unexpected end of JSON input"; `linkIssues` was reporting failure on a successful 201. ([b1c30e4](https://github.com/kud/jira/commit/b1c30e4e37cc761cba3e7ef193f96e3df90cad3e))
+
+---
+
 ## 0.5.0 — 2026-10-27
 
 ### Highlights
