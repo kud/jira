@@ -30,7 +30,7 @@
     "adf",
     "jql"
   ],
-  "homepage": "https://www.npmjs.com/package/@kud/jira",
+  "homepage": "https://kud.io/projects/jira",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kud/jira.git"
