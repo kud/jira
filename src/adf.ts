@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 type AdfNode = {
   type?: string
   text?: string
@@ -74,6 +76,17 @@ const render = (node: AdfNode): string => {
         node,
         (i) => `${Number(node.attrs?.["order"] ?? 1) + i}. `,
       )
+    case "taskList":
+      return (node.content ?? [])
+        .map((item) =>
+          item.type === "taskList"
+            ? render(item)
+                .split("\n")
+                .map((l) => `  ${l}`)
+                .join("\n")
+            : `- [${item.attrs?.["state"] === "DONE" ? "x" : " "}] ${children(item)}`.trimEnd(),
+        )
+        .join("\n")
     case "codeBlock":
       return `\`\`\`${node.attrs?.["language"] ?? ""}\n${children(node)}\n\`\`\``
     case "blockquote":
@@ -180,7 +193,48 @@ const inline = (text: string): unknown[] => {
   return nodes.length > 0 ? nodes : [{ type: "text", text }]
 }
 
-const blockToAdf = (block: string): unknown => {
+const BULLET = /^\s*[-*]\s+/
+const TASK = /^\s*[-*]\s+\[([ xX])\](?:\s+(.*))?$/
+
+const taskItem = (line: string): unknown => {
+  const [, mark = " ", text = ""] = line.match(TASK) ?? []
+  return {
+    type: "taskItem",
+    attrs: { localId: randomUUID(), state: mark === " " ? "TODO" : "DONE" },
+    content: text ? inline(text) : [],
+  }
+}
+
+const bulletItem = (line: string): unknown => ({
+  type: "listItem",
+  content: [{ type: "paragraph", content: inline(line.replace(BULLET, "")) }],
+})
+
+/**
+ * A dash list, split into runs: consecutive `- [ ]`/`- [x]` lines become one
+ * taskList, the plain bullets between them stay a bulletList. Jira has no list
+ * that holds both, so a mixed list comes out as alternating siblings.
+ */
+const bulletRuns = (lines: string[]): unknown[] => {
+  const runs: { task: boolean; lines: string[] }[] = []
+  for (const line of lines) {
+    const task = TASK.test(line)
+    const last = runs.at(-1)
+    if (last?.task === task) last.lines.push(line)
+    else runs.push({ task, lines: [line] })
+  }
+  return runs.map((run) =>
+    run.task
+      ? {
+          type: "taskList",
+          attrs: { localId: randomUUID() },
+          content: run.lines.map(taskItem),
+        }
+      : { type: "bulletList", content: run.lines.map(bulletItem) },
+  )
+}
+
+const blockToAdf = (block: string): unknown | unknown[] => {
   const fence = block.match(/^```(\w*)\n([\s\S]*?)\n?```$/)
   if (fence)
     return {
@@ -198,16 +252,7 @@ const blockToAdf = (block: string): unknown => {
     }
 
   const lines = block.split("\n")
-  if (lines.every((l) => /^\s*[-*]\s+/.test(l)))
-    return {
-      type: "bulletList",
-      content: lines.map((l) => ({
-        type: "listItem",
-        content: [
-          { type: "paragraph", content: inline(l.replace(/^\s*[-*]\s+/, "")) },
-        ],
-      })),
-    }
+  if (lines.every((l) => BULLET.test(l))) return bulletRuns(lines)
 
   if (lines.every((l) => /^\s*\d+[.)]\s+/.test(l)))
     return {
@@ -240,5 +285,5 @@ export const markdownToAdf = (text: string): AdfDoc => ({
     .split(/\n{2,}/)
     .map((b) => b.trim())
     .filter(Boolean)
-    .map(blockToAdf),
+    .flatMap(blockToAdf),
 })
