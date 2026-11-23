@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ---
 
+## 0.7.0 — 2026-11-23
+
+### Highlights
+
+- `markdownToAdf` turns `- [ ]` and `- [x]` items into real Jira checkboxes: each run becomes a `taskList` of `taskItem`s, and plain bullets in the same list stay a bullet list. `adfToMarkdown` renders them back as `- [ ]` / `- [x]`, nested lists indented. ([a66a2ae](https://github.com/kud/jira/commit/a66a2ae2add27a2bfe75e556c2fb22cf0f79134a))
+- `**bold**` now becomes the `strong` mark, and bare `https://` URLs and `owner/repo#N` references become links, the latter to the GitHub issue or pull request. ([4466d3d](https://github.com/kud/jira/commit/4466d3d9b5ef400603ba5d75e44a4e69bdf59c02))
+- A new `baseUrl` option, `markdownToAdf(text, { baseUrl })`, links bare issue keys such as `SHOP-123` to `<baseUrl>/browse/SHOP-123`. Standards that look like keys (`UTF-8`, `SHA-256`, `RFC-9110` and the like) stay text, and without the option every key does. ([4466d3d](https://github.com/kud/jira/commit/4466d3d9b5ef400603ba5d75e44a4e69bdf59c02))
+
+### Fixes
+
+- A fenced code block with a blank line inside is no longer torn into separate blocks, and nothing inside a fence or a code span is read as a list, a mark or a link. ([4466d3d](https://github.com/kud/jira/commit/4466d3d9b5ef400603ba5d75e44a4e69bdf59c02))
+
+---
+
 ## 0.6.0 — 2026-10-30
 
 ### Highlights
