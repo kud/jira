@@ -158,39 +158,131 @@ export const adfToMarkdown = (doc: unknown, media?: MediaResolver): string => {
 
 type AdfDoc = { type: "doc"; version: 1; content: unknown[] }
 
-const inline = (text: string): unknown[] => {
-  // Only code spans and links are worth parsing: they are the two marks whose
-  // absence changes meaning rather than appearance.
-  const pattern = /(`[^`]+`)|(\[[^\]]+\]\([^)]+\))/g
-  const nodes: unknown[] = []
+type Mark = { type: string; attrs?: Record<string, unknown> }
+type TextNode = { type: "text"; text: string; marks?: Mark[] }
+
+export type MarkdownToAdfOptions = {
+  /** The Jira site, e.g. `https://acme.atlassian.net`; bare issue keys link to it. Without it they stay text. */
+  baseUrl?: string
+}
+
+let site: string | undefined
+
+/**
+ * Prefixes that read like issue keys but are standards and versions. A real
+ * project could use one of these keys, but `UTF-8` in prose is far likelier.
+ */
+const NOT_ISSUE_KEYS = new Set([
+  "AES",
+  "ANSI",
+  "BASE",
+  "CRC",
+  "CVE",
+  "CWE",
+  "DDR",
+  "ECMA",
+  "EN",
+  "ES",
+  "FIPS",
+  "GHSA",
+  "GMT",
+  "HTTP",
+  "HTTPS",
+  "IEC",
+  "IEEE",
+  "IPV",
+  "ISO",
+  "MD",
+  "NIST",
+  "PCI",
+  "PEP",
+  "RFC",
+  "RSA",
+  "SHA",
+  "SOC",
+  "SSL",
+  "TLS",
+  "USB",
+  "UTC",
+  "UTF",
+  "WCAG",
+  "WPA",
+])
+
+const INLINE = new RegExp(
+  [
+    /`([^`]+)`/.source,
+    /\[([^\]]+)\]\(([^)\s]+)\)/.source,
+    /\*\*(?=\S)([\s\S]+?)\*\*/.source,
+    /(https?:\/\/[^\s<>()[\]`]+)/.source,
+    /(?<![\w/.#-])([A-Za-z0-9][\w.-]*\/[\w.-]+#\d+)(?!\w)/.source,
+    /(?<![\w/.#-])([A-Z][A-Z0-9]+)-(\d+)(?![\w-])/.source,
+  ].join("|"),
+  "g",
+)
+
+const link = (text: string, href: string): TextNode => ({
+  type: "text",
+  text,
+  marks: [{ type: "link", attrs: { href } }],
+})
+
+/**
+ * Inline Markdown to ADF text nodes. Nothing inside a code span is parsed
+ * further, and a URL or a `[label](href)` swallows any key or ref in it, so
+ * neither is linked twice.
+ */
+const inline = (text: string): TextNode[] => {
+  const nodes: TextNode[] = []
+  const plain = (s: string): void => {
+    if (!s) return
+    const last = nodes.at(-1)
+    if (last && !last.marks) last.text += s
+    else nodes.push({ type: "text", text: s })
+  }
   let cursor = 0
 
-  for (const match of text.matchAll(pattern)) {
-    const at = match.index
-    if (at > cursor) nodes.push({ type: "text", text: text.slice(cursor, at) })
+  for (const m of text.matchAll(INLINE)) {
+    const at = m.index
+    let end = at + m[0].length
+    const [, code, label, href, strong, url, ref, project, number] = m
 
-    const token = match[0]
-    if (token.startsWith("`")) {
-      nodes.push({
-        type: "text",
-        text: token.slice(1, -1),
-        marks: [{ type: "code" }],
-      })
-    } else {
-      const [, label = "", href = ""] =
-        token.match(/\[([^\]]+)\]\(([^)]+)\)/) ?? []
-      nodes.push({
-        type: "text",
-        text: label,
-        marks: [{ type: "link", attrs: { href } }],
-      })
+    if (at < cursor) continue
+    plain(text.slice(cursor, at))
+
+    if (code !== undefined) {
+      nodes.push({ type: "text", text: code, marks: [{ type: "code" }] })
+    } else if (label !== undefined && href !== undefined) {
+      nodes.push(link(label, href))
+    } else if (strong !== undefined) {
+      // ADF lets `code` share a node with `link` only, so a code span inside
+      // bold stays code rather than gaining a mark Jira would reject.
+      for (const node of inline(strong)) {
+        const isCode = node.marks?.some((mk) => mk.type === "code")
+        nodes.push(
+          isCode
+            ? node
+            : { ...node, marks: [...(node.marks ?? []), { type: "strong" }] },
+        )
+      }
+    } else if (url !== undefined) {
+      const trimmed = url.replace(/[.,;:!?'"]+$/, "")
+      end = at + trimmed.length
+      nodes.push(link(trimmed, trimmed))
+    } else if (ref !== undefined) {
+      const [repo = "", issue = ""] = ref.split("#")
+      nodes.push(link(ref, `https://github.com/${repo}/issues/${issue}`))
+    } else if (project !== undefined && number !== undefined) {
+      const key = `${project}-${number}`
+      if (site && !NOT_ISSUE_KEYS.has(project))
+        nodes.push(link(key, `${site}/browse/${key}`))
+      else plain(key)
     }
-    cursor = at + token.length
+    cursor = end
   }
 
-  if (cursor < text.length)
-    nodes.push({ type: "text", text: text.slice(cursor) })
-  return nodes.length > 0 ? nodes : [{ type: "text", text }]
+  plain(text.slice(cursor))
+  return nodes
 }
 
 const BULLET = /^\s*[-*]\s+/
@@ -201,7 +293,7 @@ const taskItem = (line: string): unknown => {
   return {
     type: "taskItem",
     attrs: { localId: randomUUID(), state: mark === " " ? "TODO" : "DONE" },
-    content: text ? inline(text) : [],
+    content: inline(text),
   }
 }
 
@@ -235,14 +327,6 @@ const bulletRuns = (lines: string[]): unknown[] => {
 }
 
 const blockToAdf = (block: string): unknown | unknown[] => {
-  const fence = block.match(/^```(\w*)\n([\s\S]*?)\n?```$/)
-  if (fence)
-    return {
-      type: "codeBlock",
-      ...(fence[1] ? { attrs: { language: fence[1] } } : {}),
-      content: [{ type: "text", text: fence[2] ?? "" }],
-    }
-
   const heading = block.match(/^(#{1,6})\s+(.*)$/)
   if (heading)
     return {
@@ -271,19 +355,69 @@ const blockToAdf = (block: string): unknown | unknown[] => {
   return { type: "paragraph", content: inline(block) }
 }
 
+const codeBlock = (language: string, code: string): unknown => ({
+  type: "codeBlock",
+  ...(language ? { attrs: { language } } : {}),
+  // ADF text nodes must not be empty, so an empty fence carries no content.
+  content: code ? [{ type: "text", text: code }] : [],
+})
+
+/**
+ * Fenced blocks are cut out first, whole, so a blank line inside one does not
+ * split it and nothing inside one is read as a list, a task or a mark.
+ */
+const blocks = (text: string): unknown[] => {
+  const out: unknown[] = []
+  const prose: string[] = []
+  const flush = (): void => {
+    out.push(
+      ...prose
+        .join("\n")
+        .split(/\n{2,}/)
+        .map((b) => b.trim())
+        .filter(Boolean)
+        .flatMap(blockToAdf),
+    )
+    prose.length = 0
+  }
+
+  const lines = text.split("\n")
+  for (let i = 0; i < lines.length; i++) {
+    const open = lines[i]?.match(/^\s*```\s*([\w+#.-]*)\s*$/)
+    if (!open) {
+      prose.push(lines[i] ?? "")
+      continue
+    }
+    const close = lines.findIndex((l, j) => j > i && /^\s*```\s*$/.test(l))
+    const last = close === -1 ? lines.length : close
+    flush()
+    out.push(codeBlock(open[1] ?? "", lines.slice(i + 1, last).join("\n")))
+    i = last
+  }
+  flush()
+  return out
+}
+
 /**
  * Markdown to ADF, covering what someone actually types into a comment from a
- * terminal: paragraphs, fenced code, headings, lists, links and code spans.
- * Deliberately partial — anything richer is better authored in Jira, and a
- * half-supported table would corrupt more often than it would help.
+ * terminal: paragraphs, fenced code, headings, lists and task lists, bold,
+ * code spans, links, bare URLs, `owner/repo#N` refs and, given the site, bare
+ * issue keys. Deliberately partial — anything richer is better authored in
+ * Jira, and a half-supported table would corrupt more often than it would help.
  */
-export const markdownToAdf = (text: string): AdfDoc => ({
-  type: "doc",
-  version: 1,
-  content: text
-    .replace(/\r\n/g, "\n")
-    .split(/\n{2,}/)
-    .map((b) => b.trim())
-    .filter(Boolean)
-    .flatMap(blockToAdf),
-})
+export const markdownToAdf = (
+  text: string,
+  options: MarkdownToAdfOptions = {},
+): AdfDoc => {
+  const previous = site
+  site = options.baseUrl?.replace(/\/+$/, "")
+  try {
+    return {
+      type: "doc",
+      version: 1,
+      content: blocks(text.replace(/\r\n/g, "\n")),
+    }
+  } finally {
+    site = previous
+  }
+}

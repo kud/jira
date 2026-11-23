@@ -214,3 +214,192 @@ describe("adfToMarkdown task lists", () => {
     expect(adfToMarkdown(doc)).toBe("- [ ] pack\n  - [x] socks")
   })
 })
+
+type Text = {
+  type: string
+  text: string
+  marks?: { type: string; attrs?: { href?: string } }[]
+}
+type Block = {
+  type: string
+  attrs?: Record<string, unknown>
+  content: Text[]
+}
+
+const SITE = "https://acme.example.net"
+const para = (markdown: string, baseUrl?: string): Text[] =>
+  (markdownToAdf(markdown, { baseUrl }).content as [Block])[0].content
+const hrefOf = (nodes: Text[], text: string): string | undefined =>
+  nodes.find((n) => n.text === text)?.marks?.find((m) => m.type === "link")
+    ?.attrs?.href
+
+describe("markdownToAdf code", () => {
+  it("gives a fenced block its language", () => {
+    const [block] = markdownToAdf("```ts\nconst a = 1\n```").content as [Block]
+
+    expect(block).toEqual({
+      type: "codeBlock",
+      attrs: { language: "ts" },
+      content: [{ type: "text", text: "const a = 1" }],
+    })
+  })
+
+  it("leaves attrs off a fence with no language", () => {
+    const [block] = markdownToAdf("```\nplain\n```").content as [Block]
+
+    expect(block.type).toBe("codeBlock")
+    expect(block.attrs).toBeUndefined()
+  })
+
+  it("keeps a fence whole across blank lines, prose either side", () => {
+    const blocks = markdownToAdf(
+      "before\n\n```py\nfirst()\n\nsecond()\n```\n\nafter",
+    ).content as Block[]
+
+    expect(blocks.map((b) => b.type)).toEqual([
+      "paragraph",
+      "codeBlock",
+      "paragraph",
+    ])
+    expect(blocks[1]?.content[0]?.text).toBe("first()\n\nsecond()")
+  })
+
+  it("keeps a checkbox, bold and a link inside a fence literal", () => {
+    const code = "- [ ] not a task\n**not bold** SHOP-1 https://example.test"
+    const [block] = markdownToAdf("```md\n" + code + "\n```", { baseUrl: SITE })
+      .content as [Block]
+
+    expect(block.type).toBe("codeBlock")
+    expect(block.content).toEqual([{ type: "text", text: code }])
+  })
+
+  it("marks inline backticks as code and parses nothing inside them", () => {
+    const nodes = para("use `**raw** SHOP-1 https://x.test` here", SITE)
+
+    expect(nodes).toEqual([
+      { type: "text", text: "use " },
+      {
+        type: "text",
+        text: "**raw** SHOP-1 https://x.test",
+        marks: [{ type: "code" }],
+      },
+      { type: "text", text: " here" },
+    ])
+  })
+
+  it("puts inline code inside a task item", () => {
+    const [list] = markdownToAdf("- [ ] run `npm ci` first").content as [
+      { content: { content: Text[] }[] },
+    ]
+
+    expect(list.content[0]?.content).toEqual([
+      { type: "text", text: "run " },
+      { type: "text", text: "npm ci", marks: [{ type: "code" }] },
+      { type: "text", text: " first" },
+    ])
+  })
+})
+
+describe("markdownToAdf bold", () => {
+  it("turns **x** into the strong mark", () => {
+    expect(para("a **bold** move")).toEqual([
+      { type: "text", text: "a " },
+      { type: "text", text: "bold", marks: [{ type: "strong" }] },
+      { type: "text", text: " move" },
+    ])
+  })
+
+  it("keeps a code span inside bold as code alone", () => {
+    const nodes = para("**see `cfg` now**")
+
+    expect(nodes.find((n) => n.text === "cfg")?.marks).toEqual([
+      { type: "code" },
+    ])
+    expect(nodes.find((n) => n.text === "see ")?.marks).toEqual([
+      { type: "strong" },
+    ])
+  })
+
+  it("bolds text inside a task item", () => {
+    const [list] = markdownToAdf("- [x] **ship** it").content as [
+      { content: { content: Text[] }[] },
+    ]
+
+    expect(list.content[0]?.content[0]).toEqual({
+      type: "text",
+      text: "ship",
+      marks: [{ type: "strong" }],
+    })
+  })
+})
+
+describe("markdownToAdf links", () => {
+  it("links a [label](url)", () => {
+    expect(
+      hrefOf(para("read [the notes](https://example.test/n)"), "the notes"),
+    ).toBe("https://example.test/n")
+  })
+
+  it("links a bare URL, leaving trailing punctuation outside", () => {
+    const nodes = para("see https://example.test/a?b=1.")
+
+    expect(hrefOf(nodes, "https://example.test/a?b=1")).toBe(
+      "https://example.test/a?b=1",
+    )
+    expect(nodes.at(-1)).toEqual({ type: "text", text: "." })
+  })
+
+  it("links owner/repo#N to the GitHub issue, keeping the text", () => {
+    expect(
+      hrefOf(para("fixed in acme/widgets#42 today"), "acme/widgets#42"),
+    ).toBe("https://github.com/acme/widgets/issues/42")
+  })
+
+  it("links a bare issue key to the configured site", () => {
+    expect(hrefOf(para("blocks SHOP-123, sadly", `${SITE}/`), "SHOP-123")).toBe(
+      `${SITE}/browse/SHOP-123`,
+    )
+  })
+
+  it("leaves issue keys as text when no site is configured", () => {
+    expect(para("blocks SHOP-123")).toEqual([
+      { type: "text", text: "blocks SHOP-123" },
+    ])
+  })
+
+  it.each([
+    "UTF-8",
+    "ISO-8601",
+    "SHA-256",
+    "RFC-9110",
+    "TLS-1",
+    "HTTP-2",
+    "CVE-2031-4242",
+  ])("does not link the standard %s", (standard) => {
+    const nodes = para(`encoded as ${standard} here`, SITE)
+
+    expect(nodes.some((n) => n.marks?.length)).toBe(false)
+    expect(nodes.map((n) => n.text).join("")).toBe(
+      `encoded as ${standard} here`,
+    )
+  })
+
+  it("does not link a key inside a URL or an existing link", () => {
+    const nodes = para(
+      "open https://tracker.example.test/SHOP-9 or [SHOP-8](https://example.test/x)",
+      SITE,
+    )
+
+    expect(hrefOf(nodes, "https://tracker.example.test/SHOP-9")).toBe(
+      "https://tracker.example.test/SHOP-9",
+    )
+    expect(hrefOf(nodes, "SHOP-8")).toBe("https://example.test/x")
+    expect(nodes.filter((n) => n.marks)).toHaveLength(2)
+  })
+
+  it("does not read a path segment as a GitHub ref", () => {
+    const nodes = para("see docs/guide/setup#3 for details")
+
+    expect(nodes.some((n) => n.marks)).toBe(false)
+  })
+})
